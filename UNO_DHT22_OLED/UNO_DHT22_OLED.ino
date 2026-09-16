@@ -13,7 +13,7 @@ const unsigned long READ_INTERVAL_MS = 2000, BUTTON_DEBOUNCE_MS = 40;
 const unsigned long WARNING_BEEP_INTERVAL_MS = 1500, WARNING_BEEP_DURATION_MS = 180;
 const long BLUETOOTH_BAUD = 9600;
 const bool FAN_ACTIVE_HIGH = true;
-#define DHT_TYPE DHT11
+#define DHT_TYPE DHT22
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 DHT dht(DHT_PIN, DHT_TYPE);
@@ -137,7 +137,7 @@ void refreshDisplay() {
   else showHelpPage();
 }
 void sendPhoneReport() {
-  if (!sensorValid) { Serial.println(F("DHT11 read failed")); return; }
+  if (!sensorValid) { Serial.println(F("DHT22 read failed")); return; }
   Serial.println(F("------ ENVIRONMENT MONITOR ------"));
   Serial.print(F("Temperature: ")); Serial.print(lastTemperature, 1); Serial.println(F(" C"));
   Serial.print(F("Humidity: ")); Serial.print(lastHumidity, 1); Serial.println(F(" %"));

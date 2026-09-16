@@ -7,24 +7,24 @@
     </style>
   </defs>
   <rect width="1200" height="700" fill="#fff"/>
-  <text x="600" y="48" text-anchor="middle" class="title">基于 Arduino 的智能温湿度监测与风扇控制系统框图</text>
+  <text x="600" y="48" text-anchor="middle" font-family="sans-serif" font-size="28" font-weight="700" fill="#17324d">基于 Arduino 的智能温湿度监测与风扇控制系统框图</text>
   <rect x="55" y="100" width="1090" height="220" fill="#f7fbff" stroke="#9fc4e2" stroke-width="2" rx="20"/>
-  <text x="80" y="135" class="group">输入与通信模块</text>
-  <rect x="95" y="175" width="210" height="95" class="box io"/>
-  <text x="200" y="215" text-anchor="middle" class="label">DHT11 温湿度传感器</text><text x="200" y="243" text-anchor="middle" class="small">D2 · 温度 / 湿度数据</text>
-  <rect x="365" y="175" width="190" height="95" class="box io"/>
-  <text x="460" y="215" text-anchor="middle" class="label">页面按键</text><text x="460" y="243" text-anchor="middle" class="small">D4 · INPUT_PULLUP</text>
-  <rect x="615" y="175" width="210" height="95" class="box io"/>
-  <text x="720" y="215" text-anchor="middle" class="label">蓝牙串口模块</text><text x="720" y="243" text-anchor="middle" class="small">9600 baud · 命令 / 状态</text>
-  <rect x="885" y="175" width="210" height="95" class="box power"/>
-  <text x="990" y="215" text-anchor="middle" class="label">Arduino Uno 供电</text><text x="990" y="243" text-anchor="middle" class="small">5 V 逻辑电源</text>
+  <text x="80" y="135" font-family="sans-serif" font-size="20" font-weight="700" fill="#245b8a">输入与通信模块</text>
+  <rect x="95" y="175" width="210" height="95" rx="14" fill="#e9f5ff" stroke="#245b8a" stroke-width="2"/>
+  <text x="200" y="215" text-anchor="middle" font-family="sans-serif" font-size="18" font-weight="600" fill="#17324d">DHT22 温湿度传感器</text><text x="200" y="243" text-anchor="middle" font-family="sans-serif" font-size="15" fill="#38556e">D2 · 温度 / 湿度数据</text>
+  <rect x="365" y="175" width="190" height="95" rx="14" fill="#e9f5ff" stroke="#245b8a" stroke-width="2"/>
+  <text x="460" y="215" text-anchor="middle" font-family="sans-serif" font-size="18" font-weight="600" fill="#17324d">页面按键</text><text x="460" y="243" text-anchor="middle" font-family="sans-serif" font-size="15" fill="#38556e">D4 · INPUT_PULLUP</text>
+  <rect x="615" y="175" width="210" height="95" rx="14" fill="#e9f5ff" stroke="#245b8a" stroke-width="2"/>
+  <text x="720" y="215" text-anchor="middle" font-family="sans-serif" font-size="18" font-weight="600" fill="#17324d">蓝牙串口模块</text><text x="720" y="243" text-anchor="middle" font-family="sans-serif" font-size="15" fill="#38556e">9600 baud · 命令 / 状态</text>
+  <rect x="885" y="175" width="210" height="95" rx="14" fill="#fff4d6" stroke="#245b8a" stroke-width="2"/>
+  <text x="990" y="215" text-anchor="middle" font-family="sans-serif" font-size="18" font-weight="600" fill="#17324d">Arduino Uno 供电</text><text x="990" y="243" text-anchor="middle" font-family="sans-serif" font-size="15" fill="#38556e">5 V 逻辑电源</text>
   <rect x="55" y="360" width="1090" height="245" fill="#fbfdff" stroke="#9fc4e2" stroke-width="2" rx="20"/>
-  <text x="80" y="395" class="group">核心处理与输出模块</text>
-  <rect x="410" y="435" width="380" height="120" class="box core"/>
-  <text x="600" y="475" text-anchor="middle" class="label">Arduino Uno 控制器</text><text x="600" y="505" text-anchor="middle" class="small">采集 · 阈值判断 · 页面刷新</text><text x="600" y="530" text-anchor="middle" class="small">报警逻辑 · 风扇控制 · 蓝牙命令解析</text>
-  <rect x="95" y="450" width="210" height="95" class="box out"/><text x="200" y="490" text-anchor="middle" class="label">SSD1306 OLED</text><text x="200" y="518" text-anchor="middle" class="small">I²C · A4 / A5</text>
-  <rect x="895" y="435" width="190" height="95" class="box out"/><text x="990" y="475" text-anchor="middle" class="label">报警装置</text><text x="990" y="503" text-anchor="middle" class="small">D3 蜂鸣器 · LED</text>
-  <rect x="895" y="550" width="190" height="55" class="box out"/><text x="990" y="585" text-anchor="middle" class="label">风扇 / 驱动模块 · D9</text>
-  <path d="M305 222 H410 V465" class="arrow"/><path d="M555 222 H600 V435" class="arrow"/><path d="M825 222 H790 V475" class="arrow"/><path d="M790 495 H895" class="arrow"/><path d="M410 495 H305" class="arrow"/><path d="M790 535 H850 V578 H895" class="arrow"/>
-  <text x="600" y="660" text-anchor="middle" class="small">系统以 2 s 为周期读取传感器；28 °C 进入预警，30 °C 进入严重报警，并通过回差避免频繁切换</text>
+  <text x="80" y="395" font-family="sans-serif" font-size="20" font-weight="700" fill="#245b8a">核心处理与输出模块</text>
+  <rect x="410" y="435" width="380" height="120" rx="14" fill="#dcecff" stroke="#245b8a" stroke-width="2"/>
+  <text x="600" y="475" text-anchor="middle" font-family="sans-serif" font-size="18" font-weight="600" fill="#17324d">Arduino Uno 控制器</text><text x="600" y="505" text-anchor="middle" font-family="sans-serif" font-size="15" fill="#38556e">采集 · 阈值判断 · 页面刷新</text><text x="600" y="530" text-anchor="middle" font-family="sans-serif" font-size="15" fill="#38556e">报警逻辑 · 风扇控制 · 蓝牙命令解析</text>
+  <rect x="95" y="450" width="210" height="95" rx="14" fill="#eef8ee" stroke="#245b8a" stroke-width="2"/><text x="200" y="490" text-anchor="middle" font-family="sans-serif" font-size="18" font-weight="600" fill="#17324d">SSD1306 OLED</text><text x="200" y="518" text-anchor="middle" font-family="sans-serif" font-size="15" fill="#38556e">I²C · A4 / A5</text>
+  <rect x="895" y="435" width="190" height="95" rx="14" fill="#eef8ee" stroke="#245b8a" stroke-width="2"/><text x="990" y="475" text-anchor="middle" font-family="sans-serif" font-size="18" font-weight="600" fill="#17324d">报警装置</text><text x="990" y="503" text-anchor="middle" font-family="sans-serif" font-size="15" fill="#38556e">D3 蜂鸣器 · LED</text>
+  <rect x="895" y="550" width="190" height="55" rx="14" fill="#eef8ee" stroke="#245b8a" stroke-width="2"/><text x="990" y="585" text-anchor="middle" font-family="sans-serif" font-size="18" font-weight="600" fill="#17324d">风扇 / 驱动模块 · D9</text>
+  <path d="M305 222 H410 V465" fill="none" stroke="#245b8a" stroke-width="3" marker-end="url(#arrow)"/><path d="M555 222 H600 V435" fill="none" stroke="#245b8a" stroke-width="3" marker-end="url(#arrow)"/><path d="M825 222 H790 V475" fill="none" stroke="#245b8a" stroke-width="3" marker-end="url(#arrow)"/><path d="M790 495 H895" fill="none" stroke="#245b8a" stroke-width="3" marker-end="url(#arrow)"/><path d="M410 495 H305" fill="none" stroke="#245b8a" stroke-width="3" marker-end="url(#arrow)"/><path d="M790 535 H850 V578 H895" fill="none" stroke="#245b8a" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="600" y="660" text-anchor="middle" font-family="sans-serif" font-size="15" fill="#38556e">系统以 2 s 为周期读取传感器；28 °C 进入预警，30 °C 进入严重报警，并通过回差避免频繁切换</text>
 </svg>

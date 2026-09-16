@@ -2,7 +2,7 @@
 
 > **课程设计项目**：智能传感网络与检测系统综合设计
 
-这是一个面向课程设计的简单智能传感监测系统，基于 Arduino Uno、DHT11、SSD1306 OLED 和蓝牙串口，实现环境温湿度采集、显示、报警与风扇控制。
+这是一个面向课程设计的简单智能传感监测系统，基于 Arduino Uno、DHT22、SSD1306 OLED 和蓝牙串口，实现环境温湿度采集、显示、报警与风扇控制。
 
 项目当前以“能运行、易展示、便于后续整理报告”为目标，后续可在此基础上补充系统框图、流程图、实验数据和 Word 汇报材料。
 
@@ -20,7 +20,7 @@
 
 | 模块 | Arduino Uno |
 | --- | --- |
-| DHT11 DATA | D2 |
+| DHT22 DATA | D2 |
 | 蜂鸣器 | D3 |
 | 页面按键 | D4（使用内部上拉） |
 | 风扇控制 | D9 |
@@ -40,7 +40,7 @@
 
 ## 使用方式
 
-1. 在 Arduino IDE 中打开 `UNO_DHT11_OLED/UNO_DHT11_OLED.ino`。
+1. 在 Arduino IDE 中打开 `UNO_DHT22_OLED/UNO_DHT22_OLED.ino`。
 2. 安装所需库并选择 Arduino Uno 开发板。
 3. 按照上表完成接线。
 4. 编译并上传程序。
@@ -67,11 +67,11 @@ OK
 ## 项目结构
 
 ```text
-UNO_DHT11_OLED/
-├── UNO_DHT11_OLED.ino       # 主程序：采集、显示、报警、风扇和蓝牙控制
+UNO_DHT22_OLED/
+├── UNO_DHT22_OLED.ino       # 主程序：采集、显示、报警、风扇和蓝牙控制
 ├── Bluetooth_Test/          # 蓝牙与传感器显示测试程序
 │   ├── Bluetooth_Test.ino
-│   └── UNO_DHT11_Bluetooth_OLED.ino
+│   └── UNO_DHT22_Bluetooth_OLED.ino
 ├── Bluetooth_Test_old.txt   # 早期测试记录
 ├── README.md                # 项目说明与复现步骤
 ├── docs/                    # 课程设计报告图表、实验记录和文档素材
@@ -92,4 +92,8 @@ UNO_DHT11_OLED/
 
 
 - `Bluetooth_Test.ino`：基础蓝牙串口收发测试
-- `UNO_DHT11_Bluetooth_OLED.ino`：温湿度 OLED 显示及 VOFA+ FireWater 输出测试
+- `UNO_DHT22_Bluetooth_OLED.ino`：DHT22 温湿度 OLED 显示及 VOFA+ FireWater 输出测试；不作为当前主程序依据
+
+## 课程设计材料
+
+`docs/submission/` 中保存已脱敏的答辩 PPT、设计报告和实测数据表。视频仅保留在本地答辩拷贝包，不随仓库上传。

@@ -1,0 +1,17 @@
+# Local build outputs and dependency folders
+node_modules/
+outputs/
+work/
+*.inspect.ndjson
+
+# Videos and local presentation copy package are kept for classroom use only
+video/
+答辩直接拷贝包/
+
+# Temporary Office lock files and rendered slide previews
+docs/presentation/~$*
+docs/presentation/rendered-*/
+docs/presentation/
+docs/report/
+docs/*.doc
+docs/*.xlsx
