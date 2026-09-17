@@ -6,29 +6,53 @@
 const uint8_t SCREEN_WIDTH = 128, SCREEN_HEIGHT = 64, OLED_ADDRESS = 0x3C;
 const uint8_t DHT_PIN = 2, BUZZER_PIN = 3, BUTTON_PIN = 4, FAN_PIN = 9;
 const uint8_t STATUS_LED_PIN = LED_BUILTIN, COMMAND_BUFFER_SIZE = 32;
-const float WARNING_TEMPERATURE_C = 28.0, CRITICAL_TEMPERATURE_C = 30.0;
-const float WARNING_HUMIDITY_PCT = 70.0, CRITICAL_HUMIDITY_PCT = 80.0;
 const float TEMPERATURE_HYSTERESIS_C = 1.0, HUMIDITY_HYSTERESIS_PCT = 5.0;
+const float COLD_TEMPERATURE_C = 8.0, COLD_RELEASE_TEMPERATURE_C = 10.0;
 const unsigned long READ_INTERVAL_MS = 2000, BUTTON_DEBOUNCE_MS = 40;
 const unsigned long WARNING_BEEP_INTERVAL_MS = 1500, WARNING_BEEP_DURATION_MS = 180;
 const long BLUETOOTH_BAUD = 9600;
 const bool FAN_ACTIVE_HIGH = true;
 #define DHT_TYPE DHT22
 
+// 分时时段边界（一天内的秒数）
+const unsigned long MORNING_START_S = 6UL * 3600UL;
+const unsigned long AFTERNOON_START_S = 12UL * 3600UL;
+const unsigned long NIGHT_START_S = 18UL * 3600UL;
+const unsigned long SECONDS_PER_DAY = 24UL * 3600UL;
+
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 DHT dht(DHT_PIN, DHT_TYPE);
 enum AlarmLevel { NORMAL, WARNING, CRITICAL };
 enum FanMode { FAN_AUTO, FAN_FORCE_ON, FAN_FORCE_OFF };
+enum TimePeriod { PERIOD_UNSET, PERIOD_MORNING, PERIOD_AFTERNOON, PERIOD_NIGHT };
+
+struct ThresholdPair { float warning; float critical; };
+
+// 未校时按 28/30 ℃；分时温度阈值 上午 25/30、下午 23/28、夜间 12/15 ℃；湿度全天 70/80 %RH
+const ThresholdPair UNSET_TEMPERATURE_THRESHOLD = {28.0, 30.0};
+ThresholdPair morningTemperatureThreshold = {25.0, 30.0};
+ThresholdPair afternoonTemperatureThreshold = {23.0, 28.0};
+ThresholdPair nightTemperatureThreshold = {12.0, 15.0};
+ThresholdPair humidityThreshold = {70.0, 80.0};
+
 AlarmLevel alarmLevel = NORMAL;
 FanMode fanMode = FAN_AUTO;
+TimePeriod currentPeriod = PERIOD_UNSET;
+ThresholdPair activeTemperatureThreshold = UNSET_TEMPERATURE_THRESHOLD;
 uint8_t displayPage = 0;
 float lastTemperature = 0, lastHumidity = 0;
 bool sensorValid = false, hasValidReading = false, alarmSilenced = false;
+bool coldProtection = false;
+bool clockSet = false;
+unsigned long clockBaseSecond = 0, clockBaseMillis = 0, lastClockSecond = 0;
 bool buttonStableState = HIGH, buttonLastReading = HIGH;
 unsigned long buttonChangedAt = 0, lastReadAt = 0, lastWarningBeepAt = 0;
 char commandBuffer[COMMAND_BUFFER_SIZE];
 uint8_t commandLength = 0;
 bool commandOverflow = false;
+
+void updateAlarmOutputs();
+void refreshDisplay();
 
 const __FlashStringHelper *alarmName() {
   if (alarmLevel == CRITICAL) return F("CRITICAL");
@@ -36,8 +60,8 @@ const __FlashStringHelper *alarmName() {
   return F("NORMAL");
 }
 const __FlashStringHelper *alarmCause() {
-  const bool hot = lastTemperature >= WARNING_TEMPERATURE_C;
-  const bool humid = lastHumidity >= WARNING_HUMIDITY_PCT;
+  const bool hot = lastTemperature >= activeTemperatureThreshold.warning;
+  const bool humid = lastHumidity >= humidityThreshold.warning;
   if (hot && humid) return F("TEMP+HUM");
   if (hot) return F("TEMP");
   if (humid) return F("HUM");
@@ -48,20 +72,45 @@ const __FlashStringHelper *fanModeName() {
   if (fanMode == FAN_FORCE_OFF) return F("OFF");
   return F("AUTO");
 }
+const __FlashStringHelper *periodName() {
+  if (currentPeriod == PERIOD_MORNING) return F("DAY");
+  if (currentPeriod == PERIOD_AFTERNOON) return F("PM");
+  if (currentPeriod == PERIOD_NIGHT) return F("NIGHT");
+  return F("UNSET");
+}
 bool fanShouldRun() {
   if (!sensorValid) return hasValidReading;
   if (fanMode == FAN_FORCE_ON) return true;
   if (fanMode == FAN_FORCE_OFF) return alarmLevel == CRITICAL;
-  return alarmLevel != NORMAL;
+  if (alarmLevel == CRITICAL) return true;
+  if (alarmLevel == WARNING) return !coldProtection;
+  return false;
 }
 void setFan(bool enabled) {
   digitalWrite(FAN_PIN, (FAN_ACTIVE_HIGH ? enabled : !enabled) ? HIGH : LOW);
 }
+// 时钟仅由 millis() 推算，断电或复位后需重新发送 TIME
+unsigned long currentSecondOfDay() {
+  if (!clockSet) return 0;
+  return (clockBaseSecond + (millis() - clockBaseMillis) / 1000UL) % SECONDS_PER_DAY;
+}
+TimePeriod periodForSecond(unsigned long secondOfDay) {
+  if (!clockSet) return PERIOD_UNSET;
+  if (secondOfDay < MORNING_START_S) return PERIOD_NIGHT;
+  if (secondOfDay < AFTERNOON_START_S) return PERIOD_MORNING;
+  if (secondOfDay < NIGHT_START_S) return PERIOD_AFTERNOON;
+  return PERIOD_NIGHT;
+}
+void formatClock(char *buffer, uint8_t size) {
+  if (!clockSet) { strncpy(buffer, "NOT SET", size); buffer[size - 1] = '\0'; return; }
+  const unsigned long second = currentSecondOfDay();
+  snprintf(buffer, size, "%02u:%02u:%02u", (unsigned)(second / 3600UL), (unsigned)((second / 60UL) % 60UL), (unsigned)(second % 60UL));
+}
 void updateAlarmLevel(float temperature, float humidity) {
-  const bool critical = temperature >= CRITICAL_TEMPERATURE_C || humidity >= CRITICAL_HUMIDITY_PCT;
-  const bool warning = temperature >= WARNING_TEMPERATURE_C || humidity >= WARNING_HUMIDITY_PCT;
-  const bool belowWarning = temperature < WARNING_TEMPERATURE_C - TEMPERATURE_HYSTERESIS_C && humidity < WARNING_HUMIDITY_PCT - HUMIDITY_HYSTERESIS_PCT;
-  const bool belowCritical = temperature < CRITICAL_TEMPERATURE_C - TEMPERATURE_HYSTERESIS_C && humidity < CRITICAL_HUMIDITY_PCT - HUMIDITY_HYSTERESIS_PCT;
+  const bool critical = temperature >= activeTemperatureThreshold.critical || humidity >= humidityThreshold.critical;
+  const bool warning = temperature >= activeTemperatureThreshold.warning || humidity >= humidityThreshold.warning;
+  const bool belowWarning = temperature < activeTemperatureThreshold.warning - TEMPERATURE_HYSTERESIS_C && humidity < humidityThreshold.warning - HUMIDITY_HYSTERESIS_PCT;
+  const bool belowCritical = temperature < activeTemperatureThreshold.critical - TEMPERATURE_HYSTERESIS_C && humidity < humidityThreshold.critical - HUMIDITY_HYSTERESIS_PCT;
   if (alarmLevel == CRITICAL) {
     if (belowCritical) alarmLevel = WARNING;
     return;
@@ -74,6 +123,34 @@ void updateAlarmLevel(float temperature, float humidity) {
   alarmSilenced = false;
   if (critical) alarmLevel = CRITICAL;
   else if (warning) alarmLevel = WARNING;
+}
+void updateColdProtection(float temperature) {
+  if (temperature <= COLD_TEMPERATURE_C) coldProtection = true;
+  else if (temperature >= COLD_RELEASE_TEMPERATURE_C) coldProtection = false;
+}
+// 时段切换后按新阈值重新判定，旧的报警状态和回差不再沿用
+void applyTimePeriod(TimePeriod period) {
+  currentPeriod = period;
+  if (period == PERIOD_MORNING) activeTemperatureThreshold = morningTemperatureThreshold;
+  else if (period == PERIOD_AFTERNOON) activeTemperatureThreshold = afternoonTemperatureThreshold;
+  else if (period == PERIOD_NIGHT) activeTemperatureThreshold = nightTemperatureThreshold;
+  else activeTemperatureThreshold = UNSET_TEMPERATURE_THRESHOLD;
+  alarmLevel = NORMAL;
+  if (hasValidReading) updateAlarmLevel(lastTemperature, lastHumidity);
+  updateAlarmOutputs();
+  refreshDisplay();
+}
+void updateTimePeriod() {
+  if (!clockSet) return;
+  const TimePeriod period = periodForSecond(currentSecondOfDay());
+  if (period != currentPeriod) applyTimePeriod(period);
+}
+void tickClock() {
+  if (!clockSet) return;
+  const unsigned long elapsedSeconds = (millis() - clockBaseMillis) / 1000UL;
+  if (elapsedSeconds == lastClockSecond) return;
+  lastClockSecond = elapsedSeconds;
+  updateTimePeriod();
 }
 void updateAlarmOutputs() {
   const unsigned long now = millis();
@@ -104,21 +181,23 @@ void showReadError() {
 }
 void showSensorPage() {
   display.clearDisplay(); display.setTextColor(SSD1306_WHITE); display.setTextSize(1);
-  display.setCursor(0, 0); display.print(F("P1 TEMP/HUM ")); display.println(alarmName());
+  display.setCursor(0, 0); display.print(F("P1 ")); display.print(periodName()); display.print(' '); display.println(alarmName());
   display.setTextSize(2); display.setCursor(0, 16); display.print(lastTemperature, 1); display.println(F(" C"));
   display.setCursor(0, 40); display.print(lastHumidity, 1); display.println(F(" %")); display.display();
 }
 void showControlPage() {
+  char clockText[9];
+  formatClock(clockText, sizeof(clockText));
   display.clearDisplay(); display.setTextColor(SSD1306_WHITE); display.setTextSize(1);
   display.setCursor(0, 0); display.println(F("P2 MODULE STATUS"));
-  display.print(F("Sensor: ")); display.println(sensorValid ? F("OK") : F("ERROR"));
-  display.print(F("Alarm:  ")); display.print(alarmName()); display.print(F(" ")); display.println(alarmCause());
-  display.print(F("Temp:   ")); display.print(lastTemperature, 1); display.println(F(" C"));
-  display.print(F("Hum:    ")); display.print(lastHumidity, 1); display.println(F(" %"));
-  display.print(F("Buzzer: ")); display.println(alarmLevel == NORMAL || alarmSilenced ? F("OFF") : F("ON"));
-  display.print(F("Fan:    ")); display.print(fanModeName()); display.print(F(" ")); display.println(fanShouldRun() ? F("RUN") : F("STOP"));
-  display.print(F("LED:    ")); display.println(alarmLevel == NORMAL ? F("OFF") : F("ON"));
-  display.print(F("BT:     ")); display.println(F("9600")); display.display();
+  display.print(F("Time: ")); display.println(clockText);
+  display.print(F("Prd: ")); display.print(periodName()); display.print(' ');
+  display.print(activeTemperatureThreshold.warning, 0); display.print('/'); display.print(activeTemperatureThreshold.critical, 0); display.println(F(" C"));
+  display.print(F("HumTH: ")); display.print(humidityThreshold.warning, 0); display.print('/'); display.print(humidityThreshold.critical, 0); display.println(F(" %RH"));
+  display.print(F("Sensor: ")); display.print(sensorValid ? F("OK") : F("ERROR")); display.print(F(" Cold:")); display.println(coldProtection ? F("YES") : F("NO"));
+  display.print(F("Alarm: ")); display.print(alarmName()); display.print(' '); display.println(alarmCause());
+  display.print(F("Buzz: ")); display.print(alarmLevel == NORMAL || alarmSilenced ? F("OFF") : F("ON")); display.print(F("  LED: ")); display.println(alarmLevel == NORMAL ? F("OFF") : F("ON"));
+  display.print(F("Fan: ")); display.print(fanModeName()); display.print(' '); display.println(fanShouldRun() ? F("RUN") : F("STOP")); display.display();
 }
 void showHelpPage() {
   display.clearDisplay(); display.setTextColor(SSD1306_WHITE); display.setTextSize(1); display.setCursor(0, 0);
@@ -126,9 +205,10 @@ void showHelpPage() {
   display.println(F("STATUS   HELP"));
   display.println(F("PAGE 0/1/2"));
   display.println(F("FAN AUTO/ON/OFF"));
-  display.println(F("ALARM ON/OFF"));
-  display.println(F("OK = MUTE BUZZER"));
-  display.println(F("TEMP 28/30C HUM 70/80%")); display.display();
+  display.println(F("ALARM ON/OFF OK=MUTE"));
+  display.println(F("TIME HH:MM[:SS]"));
+  display.println(F("SET DAY/PM/NIGHT W C"));
+  display.println(F("SET HUM W C")); display.display();
 }
 void refreshDisplay() {
   if (displayPage == 0 && !sensorValid) showReadError();
@@ -138,14 +218,20 @@ void refreshDisplay() {
 }
 void sendPhoneReport() {
   if (!sensorValid) { Serial.println(F("DHT22 read failed")); return; }
+  char clockText[9];
+  formatClock(clockText, sizeof(clockText));
   Serial.println(F("------ ENVIRONMENT MONITOR ------"));
+  Serial.print(F("Time: ")); Serial.print(clockText); Serial.print(F(" Period: ")); Serial.println(periodName());
   Serial.print(F("Temperature: ")); Serial.print(lastTemperature, 1); Serial.println(F(" C"));
   Serial.print(F("Humidity: ")); Serial.print(lastHumidity, 1); Serial.println(F(" %"));
+  Serial.print(F("Threshold: ")); Serial.print(activeTemperatureThreshold.warning, 0); Serial.print('/'); Serial.print(activeTemperatureThreshold.critical, 0);
+  Serial.print(F(" C  ")); Serial.print(humidityThreshold.warning, 0); Serial.print('/'); Serial.print(humidityThreshold.critical, 0); Serial.println(F(" %RH"));
   Serial.print(F("Status: ")); Serial.print(alarmName()); Serial.print(F(" Cause: ")); Serial.println(alarmCause());
   Serial.println(alarmLevel == NORMAL ? F("LED: OFF") : F("LED: ON"));
   Serial.print(F("Buzzer: ")); Serial.println(alarmLevel == NORMAL || alarmSilenced ? F("OFF") : F("ON"));
   Serial.print(F("Fan mode: ")); Serial.println(fanModeName());
   Serial.print(F("Fan: ")); Serial.println(fanShouldRun() ? F("ON") : F("OFF"));
+  Serial.print(F("Cold protection: ")); Serial.println(coldProtection ? F("ON") : F("OFF"));
   Serial.println(F("---------------------------------"));
 }
 void uppercaseCommand() {
@@ -154,11 +240,102 @@ void uppercaseCommand() {
   commandBuffer[commandLength] = '\0';
 }
 bool commandEquals(const char *expected) { return strcmp(commandBuffer, expected) == 0; }
+// 解析 HH:MM 或 HH:MM:SS，拒绝越界和多余字符
+bool parseTimeArgument(const char *argument, unsigned long &secondOfDay) {
+  int part[3] = {0, 0, 0};
+  uint8_t index = 0;
+  while (*argument == ' ') ++argument;
+  while (index < 3) {
+    uint8_t digits = 0;
+    int value = 0;
+    while (*argument >= '0' && *argument <= '9' && digits < 2) { value = value * 10 + (*argument - '0'); ++argument; ++digits; }
+    if (digits == 0) break;
+    part[index++] = value;
+    if (*argument == ':') { ++argument; continue; }
+    break;
+  }
+  if (*argument != '\0' || index < 2 || index > 3) return false;
+  if (part[0] > 23 || part[1] > 59 || part[2] > 59) return false;
+  secondOfDay = (unsigned long)part[0] * 3600UL + (unsigned long)part[1] * 60UL + (unsigned long)part[2];
+  return true;
+}
+// 解析无符号/小数阈值，拒绝非法字符
+bool parseFloatArgument(const char *&argument, float &value) {
+  while (*argument == ' ') ++argument;
+  bool negative = false;
+  if (*argument == '-') { negative = true; ++argument; }
+  if (*argument < '0' || *argument > '9') return false;
+  float result = 0.0;
+  while (*argument >= '0' && *argument <= '9') { result = result * 10.0 + (*argument - '0'); ++argument; }
+  if (*argument == '.') {
+    ++argument;
+    float scale = 0.1;
+    uint8_t digits = 0;
+    while (*argument >= '0' && *argument <= '9' && digits < 2) { result += (*argument - '0') * scale; scale *= 0.1; ++argument; ++digits; }
+  }
+  value = negative ? -result : result;
+  return true;
+}
+bool validThresholdPair(const ThresholdPair &pair, float minimum, float maximum) {
+  return pair.warning >= minimum && pair.critical <= maximum && pair.warning <= pair.critical;
+}
+void handleTimeCommand() {
+  unsigned long secondOfDay = 0;
+  if (!parseTimeArgument(commandBuffer + 4, secondOfDay)) {
+    Serial.println(F("ERR TIME format: TIME HH:MM[:SS]")); return;
+  }
+  clockSet = true;
+  clockBaseSecond = secondOfDay;
+  clockBaseMillis = millis();
+  lastClockSecond = 0;
+  applyTimePeriod(periodForSecond(secondOfDay));
+  char clockText[9];
+  formatClock(clockText, sizeof(clockText));
+  Serial.print(F("OK TIME ")); Serial.println(clockText);
+}
+void handleSetCommand() {
+  const char *argument = commandBuffer + 3;
+  while (*argument == ' ') ++argument;
+  char target[6];
+  uint8_t length = 0;
+  while (*argument != '\0' && *argument != ' ' && length < sizeof(target) - 1) target[length++] = *argument++;
+  target[length] = '\0';
+  ThresholdPair pair;
+  if (!parseFloatArgument(argument, pair.warning) || !parseFloatArgument(argument, pair.critical)) {
+    Serial.println(F("ERR SET format: SET DAY/PM/NIGHT W C | SET HUM W C")); return;
+  }
+  while (*argument == ' ') ++argument;
+  if (*argument != '\0') { Serial.println(F("ERR SET too many values")); return; }
+  if (strcmp(target, "DAY") == 0 || strcmp(target, "PM") == 0 || strcmp(target, "NIGHT") == 0) {
+    if (!validThresholdPair(pair, -40.0, 80.0)) { Serial.println(F("ERR SET temperature range -40..80 C, warning <= critical")); return; }
+    if (strcmp(target, "DAY") == 0) morningTemperatureThreshold = pair;
+    else if (strcmp(target, "PM") == 0) afternoonTemperatureThreshold = pair;
+    else nightTemperatureThreshold = pair;
+    if ((strcmp(target, "DAY") == 0 && currentPeriod == PERIOD_MORNING) ||
+        (strcmp(target, "PM") == 0 && currentPeriod == PERIOD_AFTERNOON) ||
+        (strcmp(target, "NIGHT") == 0 && currentPeriod == PERIOD_NIGHT)) {
+      activeTemperatureThreshold = pair;
+      alarmLevel = NORMAL;
+      if (hasValidReading) updateAlarmLevel(lastTemperature, lastHumidity);
+      updateAlarmOutputs(); refreshDisplay();
+    }
+  } else if (strcmp(target, "HUM") == 0) {
+    if (!validThresholdPair(pair, 0.0, 100.0)) { Serial.println(F("ERR SET humidity range 0..100 %RH, warning <= critical")); return; }
+    humidityThreshold = pair;
+    alarmLevel = NORMAL;
+    if (hasValidReading) updateAlarmLevel(lastTemperature, lastHumidity);
+    updateAlarmOutputs(); refreshDisplay();
+  } else {
+    Serial.println(F("ERR SET target: DAY/PM/NIGHT/HUM")); return;
+  }
+  Serial.print(F("OK SET ")); Serial.print(target); Serial.print(' ');
+  Serial.print(pair.warning, 1); Serial.print('/'); Serial.println(pair.critical, 1);
+}
 void handleCommand() {
   if (commandOverflow) { Serial.println(F("ERR command too long")); return; }
   uppercaseCommand();
   if (commandEquals("STATUS")) sendPhoneReport();
-  else if (commandEquals("HELP")) Serial.println(F("OK STATUS | PAGE 0/1/2 | FAN AUTO/ON/OFF | ALARM ON/OFF | HELP"));
+  else if (commandEquals("HELP")) Serial.println(F("OK STATUS | PAGE 0/1/2 | FAN AUTO/ON/OFF | ALARM ON/OFF | TIME HH:MM[:SS] | SET DAY|PM|NIGHT W C | SET HUM W C"));
   else if (commandEquals("PAGE 0") || commandEquals("PAGE 1") || commandEquals("PAGE 2")) {
     displayPage = commandBuffer[5] - '0'; refreshDisplay(); Serial.print(F("OK PAGE ")); Serial.println(displayPage);
   } else if (commandEquals("ALARM OFF")) {
@@ -175,7 +352,9 @@ void handleCommand() {
     fanMode = FAN_FORCE_OFF; updateAlarmOutputs(); refreshDisplay();
     if (alarmLevel == CRITICAL || !sensorValid) Serial.println(F("ERR safety override: fan remains ON"));
     else Serial.println(F("OK FAN OFF"));
-  } else Serial.println(F("ERR unknown command"));
+  } else if (strncmp(commandBuffer, "TIME ", 5) == 0) handleTimeCommand();
+  else if (strncmp(commandBuffer, "SET ", 4) == 0) handleSetCommand();
+  else Serial.println(F("ERR unknown command"));
 }
 void pollSerialCommands() {
   while (Serial.available() > 0) {
@@ -204,6 +383,7 @@ void readSensorIfDue() {
   if (!sensorValid) { updateAlarmOutputs(); refreshDisplay(); sendPhoneReport(); return; }
   lastHumidity = humidity; lastTemperature = temperature;
   hasValidReading = true;
+  updateColdProtection(temperature);
   updateAlarmLevel(temperature, humidity);
   updateAlarmOutputs();
   refreshDisplay();
@@ -214,7 +394,9 @@ void setup() {
   pinMode(BUTTON_PIN, INPUT_PULLUP); pinMode(FAN_PIN, OUTPUT); setFan(false); updateAlarmOutputs(); dht.begin();
   if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDRESS)) while (true) delay(1000);
   display.clearDisplay(); display.setTextColor(SSD1306_WHITE); display.setTextSize(1); display.setCursor(0, 0);
-  display.println(F("DHT22 + BLUETOOTH")); display.display(); Serial.println(F("DHT22 Bluetooth monitor started"));
+  display.println(F("DHT22 + BLUETOOTH")); display.println(F("TIME HH:MM TO SET")); display.display();
+  Serial.println(F("DHT22 Bluetooth monitor started"));
+  Serial.println(F("Send TIME HH:MM[:SS] to set clock; SET DAY|PM|NIGHT W C and SET HUM W C to adjust thresholds"));
   lastReadAt = millis() - READ_INTERVAL_MS;
 }
-void loop() { pollSerialCommands(); pollButton(); updateAlarmOutputs(); readSensorIfDue(); }
+void loop() { pollSerialCommands(); tickClock(); pollButton(); updateAlarmOutputs(); readSensorIfDue(); }
