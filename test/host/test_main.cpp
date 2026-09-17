@@ -208,6 +208,26 @@ int main() {
   check(g_displayOut.find("Time: 09:30") != std::string::npos, "显示时间");
   check(g_displayOut.find("25/30") != std::string::npos, "显示当前温度阈值");
 
+  section("OLED 第1页显示分时阈值与当前阈值");
+  clockSet = false; applyTimePeriod(PERIOD_UNSET);
+  setClockAt(9, 30);                 // 上午
+  sendLine("SET DAY 25 30");
+  sendLine("SET PM 23 28");
+  sendLine("SET NIGHT 12 15");
+  feedReading(26.0, 65.0);
+  displayPage = 0; refreshDisplay();
+  check(g_displayOut.find("Now 25/30") != std::string::npos, "第1页显示当前生效阈值");
+  check(g_displayOut.find("D25/30") != std::string::npos, "第1页显示上午阈值");
+  check(g_displayOut.find("P23/28") != std::string::npos, "第1页显示下午阈值");
+  check(g_displayOut.find("N12/15") != std::string::npos, "第1页显示夜间阈值");
+  check(g_displayOut.find("26.0 C") != std::string::npos, "第1页仍显示温度");
+  check(g_displayOut.find("65.0 %") != std::string::npos, "第1页仍显示湿度");
+  // 带小数阈值应按原值显示，不能被四舍五入成与报警判断不一致的整数
+  sendLine("SET DAY 25.5 30.5");
+  refreshDisplay();
+  check(g_displayOut.find("Now 25.5/30.5") != std::string::npos, "小数阈值按原值显示");
+  check(g_displayOut.find("D25.5/30.5") != std::string::npos, "小数阈值上午行按原值显示");
+
   std::cout << "\n通过 " << g_pass << " 项，失败 " << g_fail << " 项\n";
   return g_fail == 0 ? 0 : 1;
 }

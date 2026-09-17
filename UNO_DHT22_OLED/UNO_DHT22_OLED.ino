@@ -181,11 +181,28 @@ void showReadError() {
   display.setCursor(0, 24); display.println(F("Read failed"));
   display.setCursor(0, 42); display.println(F("Check DATA -> D2")); display.display();
 }
+// 阈值显示：整数省略小数位，非整数保留 1 位，避免四舍五入后显示值与实际报警阈值不符
+void printThresholdValue(float value) {
+  if (value == (float)(int)value) display.print((int)value);
+  else display.print(value, 1);
+}
 void showSensorPage() {
   display.clearDisplay(); display.setTextColor(SSD1306_WHITE); display.setTextSize(1);
-  display.setCursor(0, 0); display.print(F("P1 ")); display.print(periodName()); display.print(' '); display.println(alarmName());
-  display.setTextSize(2); display.setCursor(0, 16); display.print(lastTemperature, 1); display.println(F(" C"));
-  display.setCursor(0, 40); display.print(lastHumidity, 1); display.println(F(" %")); display.display();
+  display.setCursor(0, 0); display.print(F("P1 ")); display.print(periodName()); display.print(' '); display.print(alarmName());
+  // 当前生效阈值
+  display.setCursor(0, 8); display.print(F("Now "));
+  printThresholdValue(activeTemperatureThreshold.warning); display.print('/'); printThresholdValue(activeTemperatureThreshold.critical);
+  display.print(F(" C"));
+  // 上午 / 下午阈值
+  display.setCursor(0, 16); display.print(F("D")); 
+  printThresholdValue(morningTemperatureThreshold.warning); display.print('/'); printThresholdValue(morningTemperatureThreshold.critical);
+  display.print(F(" P")); printThresholdValue(afternoonTemperatureThreshold.warning); display.print('/'); printThresholdValue(afternoonTemperatureThreshold.critical);
+  // 夜间阈值
+  display.setCursor(0, 24); display.print(F("N"));
+  printThresholdValue(nightTemperatureThreshold.warning); display.print('/'); printThresholdValue(nightTemperatureThreshold.critical);
+  display.setTextSize(2);
+  display.setCursor(0, 32); display.print(lastTemperature, 1); display.print(F(" C"));
+  display.setCursor(0, 48); display.print(lastHumidity, 1); display.print(F(" %")); display.display();
 }
 void showControlPage() {
   char clockText[9];
