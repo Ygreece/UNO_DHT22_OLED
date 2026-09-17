@@ -52,6 +52,15 @@ int main() {
   setClockAt(18, 0);  checkEq(periodForSecond(currentSecondOfDay()), PERIOD_NIGHT, "18:00 -> NIGHT");
   setClockAt(23, 59); checkEq(periodForSecond(currentSecondOfDay()), PERIOD_NIGHT, "23:59 -> NIGHT");
 
+  section("millis 32 位回绕");
+  clockSet = true;
+  clockSecondOfDay = 23UL * 3600UL + 59UL * 60UL + 59UL;
+  clockTickMillis = 0xFFFFFF00UL;
+  g_millis = 0x000002E8UL;  // 回绕后累计经过 1000 ms
+  tickClock();
+  checkEq((long)currentSecondOfDay(), 0, "49.7 天回绕后时钟继续到 00:00:00");
+  checkEq(currentPeriod, PERIOD_NIGHT, "回绕后仍正确判断 NIGHT");
+
   section("分时阈值加载");
   setClockAt(8, 0);
   checkEq((long)(activeTemperatureThreshold.warning * 10), 250, "DAY warning 25.0");
@@ -155,12 +164,15 @@ int main() {
   check(reply.find("ERR") != std::string::npos, "SET 预警>严重 拒绝");
   checkEq((long)afternoonTemperatureThreshold.warning, 23, "被拒绝后 PM 阈值不变");
   reply = sendLine("SET NIGHT -5 5");
-  check(reply.find("OK SET NIGHT") != std::string::npos, "SET 负温度接受");
-  checkEq((long)nightTemperatureThreshold.warning, -5, "NIGHT warning -5");
+  check(reply.find("ERR") != std::string::npos, "SET 低于温室适用范围的负温度拒绝");
+  reply = sendLine("SET DAY 25 25");
+  check(reply.find("ERR") != std::string::npos, "SET 温度预警与严重阈值至少相差 1 C");
   reply = sendLine("SET HUM 75 90");
   check(reply.find("OK SET HUM") != std::string::npos, "SET HUM 75 90 接受");
   reply = sendLine("SET HUM 80 120");
   check(reply.find("ERR") != std::string::npos, "SET HUM 超量程拒绝");
+  reply = sendLine("SET HUM 80 82");
+  check(reply.find("ERR") != std::string::npos, "SET 湿度预警与严重阈值至少相差 5 %RH");
   reply = sendLine("SET XXX 10 20");
   check(reply.find("ERR") != std::string::npos, "SET 未知目标拒绝");
   reply = sendLine("SET DAY 25");

@@ -44,7 +44,7 @@ float lastTemperature = 0, lastHumidity = 0;
 bool sensorValid = false, hasValidReading = false, alarmSilenced = false;
 bool coldProtection = false;
 bool clockSet = false;
-unsigned long clockBaseSecond = 0, clockBaseMillis = 0, lastClockSecond = 0;
+uint32_t clockSecondOfDay = 0, clockTickMillis = 0;
 bool buttonStableState = HIGH, buttonLastReading = HIGH;
 unsigned long buttonChangedAt = 0, lastReadAt = 0, lastWarningBeepAt = 0;
 char commandBuffer[COMMAND_BUFFER_SIZE];
@@ -89,10 +89,10 @@ bool fanShouldRun() {
 void setFan(bool enabled) {
   digitalWrite(FAN_PIN, (FAN_ACTIVE_HIGH ? enabled : !enabled) ? HIGH : LOW);
 }
-// 时钟仅由 millis() 推算，断电或复位后需重新发送 TIME
+// 时钟仅由 millis() 的无符号时间差推进，断电或复位后需重新发送 TIME。
+// 按增量更新时间可跨越约 49.7 天的 millis() 回绕；它仍不是带后备电池的 RTC。
 unsigned long currentSecondOfDay() {
-  if (!clockSet) return 0;
-  return (clockBaseSecond + (millis() - clockBaseMillis) / 1000UL) % SECONDS_PER_DAY;
+  return clockSet ? clockSecondOfDay : 0;
 }
 TimePeriod periodForSecond(unsigned long secondOfDay) {
   if (!clockSet) return PERIOD_UNSET;
@@ -147,9 +147,11 @@ void updateTimePeriod() {
 }
 void tickClock() {
   if (!clockSet) return;
-  const unsigned long elapsedSeconds = (millis() - clockBaseMillis) / 1000UL;
-  if (elapsedSeconds == lastClockSecond) return;
-  lastClockSecond = elapsedSeconds;
+  const uint32_t now = (uint32_t)millis();
+  const uint32_t elapsedSeconds = (uint32_t)(now - clockTickMillis) / 1000UL;
+  if (elapsedSeconds == 0) return;
+  clockTickMillis += elapsedSeconds * 1000UL;
+  clockSecondOfDay = (clockSecondOfDay + elapsedSeconds) % SECONDS_PER_DAY;
   updateTimePeriod();
 }
 void updateAlarmOutputs() {
@@ -276,8 +278,9 @@ bool parseFloatArgument(const char *&argument, float &value) {
   value = negative ? -result : result;
   return true;
 }
-bool validThresholdPair(const ThresholdPair &pair, float minimum, float maximum) {
-  return pair.warning >= minimum && pair.critical <= maximum && pair.warning <= pair.critical;
+bool validThresholdPair(const ThresholdPair &pair, float minimumWarning, float maximumCritical, float minimumGap) {
+  return pair.warning >= minimumWarning && pair.critical <= maximumCritical &&
+         pair.critical >= pair.warning + minimumGap;
 }
 void handleTimeCommand() {
   unsigned long secondOfDay = 0;
@@ -285,9 +288,8 @@ void handleTimeCommand() {
     Serial.println(F("ERR TIME format: TIME HH:MM[:SS]")); return;
   }
   clockSet = true;
-  clockBaseSecond = secondOfDay;
-  clockBaseMillis = millis();
-  lastClockSecond = 0;
+  clockSecondOfDay = secondOfDay;
+  clockTickMillis = millis();
   applyTimePeriod(periodForSecond(secondOfDay));
   char clockText[9];
   formatClock(clockText, sizeof(clockText));
@@ -307,7 +309,7 @@ void handleSetCommand() {
   while (*argument == ' ') ++argument;
   if (*argument != '\0') { Serial.println(F("ERR SET too many values")); return; }
   if (strcmp(target, "DAY") == 0 || strcmp(target, "PM") == 0 || strcmp(target, "NIGHT") == 0) {
-    if (!validThresholdPair(pair, -40.0, 80.0)) { Serial.println(F("ERR SET temperature range -40..80 C, warning <= critical")); return; }
+    if (!validThresholdPair(pair, 5.0, 45.0, 1.0)) { Serial.println(F("ERR SET temperature: warning >=5 C, critical <=45 C, gap >=1 C")); return; }
     if (strcmp(target, "DAY") == 0) morningTemperatureThreshold = pair;
     else if (strcmp(target, "PM") == 0) afternoonTemperatureThreshold = pair;
     else nightTemperatureThreshold = pair;
@@ -320,7 +322,7 @@ void handleSetCommand() {
       updateAlarmOutputs(); refreshDisplay();
     }
   } else if (strcmp(target, "HUM") == 0) {
-    if (!validThresholdPair(pair, 0.0, 100.0)) { Serial.println(F("ERR SET humidity range 0..100 %RH, warning <= critical")); return; }
+    if (!validThresholdPair(pair, 30.0, 100.0, 5.0)) { Serial.println(F("ERR SET humidity: warning >=30 %RH, critical <=100 %RH, gap >=5 %RH")); return; }
     humidityThreshold = pair;
     alarmLevel = NORMAL;
     if (hasValidReading) updateAlarmLevel(lastTemperature, lastHumidity);
@@ -350,7 +352,7 @@ void handleCommand() {
     fanMode = FAN_FORCE_ON; updateAlarmOutputs(); refreshDisplay(); Serial.println(F("OK FAN ON"));
   } else if (commandEquals("FAN OFF")) {
     fanMode = FAN_FORCE_OFF; updateAlarmOutputs(); refreshDisplay();
-    if (alarmLevel == CRITICAL || !sensorValid) Serial.println(F("ERR safety override: fan remains ON"));
+    if (fanShouldRun()) Serial.println(F("ERR safety override: fan remains ON"));
     else Serial.println(F("OK FAN OFF"));
   } else if (strncmp(commandBuffer, "TIME ", 5) == 0) handleTimeCommand();
   else if (strncmp(commandBuffer, "SET ", 4) == 0) handleSetCommand();
